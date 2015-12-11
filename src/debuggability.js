@@ -24,6 +24,8 @@ var longStackTraces = !!(util.env("BLUEBIRD_LONG_STACK_TRACES") != 0 &&
     (debugging || util.env("BLUEBIRD_LONG_STACK_TRACES")));
 var monitor = !!(util.env("BLUEBIRD_MONITOR") != 0 &&
     util.env("BLUEBIRD_MONITOR"));
+var maxChainDepth = !!(util.env("BLUEBIRD_MAX_CHAIN_DEPTH") != 0 &&
+    util.env("BLUEBIRD_MAX_CHAIN_DEPTH"));
 
 Promise.prototype.suppressUnhandledRejections = function() {
     var target = this._target();
@@ -166,6 +168,18 @@ Promise.config = function(opts) {
                 Promise.disableMonitoring();
         }
     }
+
+    if ("maxChainDepth" in opts) {
+        if (opts.maxChainDepth) {
+            if (typeof opts.maxChainDepth === "number") {
+                Promise.enableChainDepthLimit(opts.maxChainDepth);
+            } else {
+                Promise.enableChainDepthLimit();
+            }
+        } else if (typeof Promise.disableChainDepthLimit === "function") {
+            Promise.disableChainDepthLimit();
+        }
+    }
 };
 
 Promise.prototype._execute = function(executor, resolve, reject) {
@@ -186,6 +200,27 @@ Promise.prototype._clearCancellationData = function() {};
 Promise.prototype._propagateFrom = function (parent, flags) {
     USE(parent);
     USE(flags);
+};
+
+Promise.enableChainDepthLimit = function (limit) {
+    var incrementChainDepth = function(next) {
+        if (!this.chainDepth) this.chainDepth = 0;
+        next.chainDepth = this.chainDepth + 1;
+        if (next.chainDepth > Promise._chainDepthLimit) {
+            throw new Error("Promises chain is too long, it reached limit of " +
+                Promise._chainDepthLimit + " promises");
+        }
+    };
+    if (!Promise._chainDepthLimit) {
+        if (!limit) limit = 10000;
+        Promise._chainDepthLimit = limit;
+        util.hookTo(Promise.prototype, "_promiseChained", incrementChainDepth);
+        Promise.disableChainDepthLimit = function () {
+            util.unhookFrom(Promise.prototype, "_promiseChained",
+                incrementChainDepth);
+            Promise._chainDepthLimit = null;
+        };
+    }
 };
 
 Promise.enableMonitoring = function () {
@@ -247,6 +282,7 @@ Promise.enableMonitoring = function () {
         };
     }
 };
+
 function cancellationExecute(executor, resolve, reject) {
     var promise = this;
     try {
@@ -886,11 +922,13 @@ var config = {
     warnings: warnings,
     longStackTraces: false,
     monitor: false,
-    cancellation: false
+    cancellation: false,
+    maxChainDepth: false
 };
 
 if (longStackTraces) Promise.longStackTraces();
 if (monitor) Promise.enableMonitoring();
+if (maxChainDepth) Promise.enableChainDepthLimit(maxChainDepth);
 
 return {
     longStackTraces: function() {
@@ -898,6 +936,9 @@ return {
     },
     enableMonitoring: function() {
         return config.enableMonitoring;
+    },
+    maxChainDepth: function() {
+        return config.maxChainDepth;
     },
     warnings: function() {
         return config.warnings;
