@@ -8,7 +8,7 @@ function any(promises) {
     var promise = ret.promise();
     ASSERT(promise.isPending());
     ASSERT(ret instanceof SomePromiseArray);
-    ret.setHowMany(1);
+    ret.setHowMany(100);
     ret.setUnwrap();
     ret.init();
     return promise;
